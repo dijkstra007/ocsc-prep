@@ -27,15 +27,28 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-// Generate 4 unique choices including the correct answer
-// Returns [choices, correctIndex]
-function makeChoices(correct: number, spread: number = 0): [string[], number] {
-  const s = spread || Math.max(Math.round(Math.abs(correct) * 0.15), 2);
+const MAX_DISTRACTOR_ATTEMPTS = 60;
+
+/** Generate 4 unique choices including the correct answer. Returns [choices, correctIndex]. */
+export function makeChoices(correct: number, spread: number = 0): [string[], number] {
+  const s = Math.max(spread || Math.max(Math.round(Math.abs(correct) * 0.15), 2), 1);
   const others = new Set<number>();
-  while (others.size < 3) {
+  let attempts = 0;
+  while (others.size < 3 && attempts < MAX_DISTRACTOR_ATTEMPTS) {
+    attempts += 1;
     const offset = randInt(1, s) * (Math.random() > 0.5 ? 1 : -1);
     const val = correct + offset;
     if (val !== correct && val > 0) others.add(val);
+  }
+  let n = 1;
+  while (others.size < 3) {
+    const up = correct + n;
+    const down = correct - n;
+    if (up !== correct && up > 0) others.add(up);
+    if (others.size >= 3) break;
+    if (down !== correct && down > 0) others.add(down);
+    n += 1;
+    if (n > 1000) others.add(Math.max(1, correct) + others.size + 1);
   }
   const allChoices = [correct, ...others];
   const shuffled = shuffle(allChoices);
@@ -70,16 +83,23 @@ function genDiscount(): Question {
   };
 }
 
+function workRatePairs(): [number, number][] {
+  const pairs: [number, number][] = [];
+  const as = [3, 4, 5, 6, 8, 10, 12];
+  const bs = [4, 6, 8, 10, 12, 15, 20];
+  for (const a of as) {
+    for (const b of bs) {
+      if (a === b) continue;
+      const together = (a * b) / (a + b);
+      if (Number.isInteger(together) && together > 0) pairs.push([a, b]);
+    }
+  }
+  return pairs;
+}
+
 function genWorkRate(): Question {
-  const a = randFrom([3, 4, 5, 6, 8, 10, 12]);
-  let b: number;
-  do { b = randFrom([4, 6, 8, 10, 12, 15, 20]); } while (b === a);
-  // Together: 1/a + 1/b = (a+b)/(a*b)
+  const [a, b] = randFrom(workRatePairs());
   const together = (a * b) / (a + b);
-  const isWhole = Number.isInteger(together);
-  
-  if (!isWhole) return genWorkRate(); // retry for clean answer
-  
   const [choices, answer] = makeChoices(together, 4);
 
   return {
@@ -92,15 +112,24 @@ function genWorkRate(): Question {
 }
 
 function genAverage(): Question {
-  const count = randFrom([4, 5, 6, 8, 10]);
-  const avg = randInt(40, 70);
-  const newPerson = avg + randFrom([6, 8, 10, 12, 15, 20]);
-  const totalOld = count * avg;
-  const totalNew = totalOld + newPerson;
-  const newAvg = totalNew / (count + 1);
-  
-  if (!Number.isInteger(newAvg)) return genAverage();
-  
+  let count = 4;
+  let avg = 50;
+  let newPerson = 70;
+  let totalOld = 200;
+  let totalNew = 270;
+  let newAvg = 54;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    count = randFrom([4, 5, 6, 8, 10]);
+    avg = randInt(40, 70);
+    newPerson = avg + randFrom([6, 8, 10, 12, 15, 20]);
+    totalOld = count * avg;
+    totalNew = totalOld + newPerson;
+    const candidate = totalNew / (count + 1);
+    if (Number.isInteger(candidate)) {
+      newAvg = candidate;
+      break;
+    }
+  }
   const [choices, answer] = makeChoices(newAvg, 5);
 
   return {
@@ -138,7 +167,7 @@ function genPercentage(): Question {
   return {
     id: 0,
     question: `${pct}% ของ ${fmt(total)} เท่ากับเท่าไร?`,
-    choices: choices.map(fmt),
+    choices: choices,
     answer,
     explanation: `${pct}% ของ ${fmt(total)} = ${total} × ${pct}/100 = ${total} × ${pct / 100} = ${fmt(result)}`,
   };
